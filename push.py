@@ -8,9 +8,12 @@ import os
 import sys
 import urllib.error
 import urllib.request
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Any
-from zoneinfo import ZoneInfo
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+
+DEFAULT_PAYLOAD_LIMIT_BYTES = 2048
 
 
 def env(name: str, default: str | None = None) -> str:
@@ -27,9 +30,10 @@ def http(
     method: str = "GET",
     body: dict[str, Any] | None = None,
     headers: dict[str, str] | None = None,
+    expect_json: bool = True,
     timeout: float = 15.0,
 ) -> dict[str, Any]:
-    data = json.dumps(body).encode() if body is not None else None
+    data = encode_json(body) if body is not None else None
     req = urllib.request.Request(url, data=data, method=method)
     req.add_header("Content-Type", "application/json")
     req.add_header("Accept", "application/json")
@@ -38,9 +42,18 @@ def http(
         req.add_header(k, v)
     with urllib.request.urlopen(req, timeout=timeout) as resp:
         raw = resp.read()
+        content_type = resp.headers.get("Content-Type", "")
+    if not expect_json:
+        return {}
     if not raw:
         return {}
+    if "json" not in content_type.lower():
+        raise ValueError(f"expected JSON response from {url}, got {content_type or 'unknown content type'}")
     return json.loads(raw)
+
+
+def encode_json(payload: dict[str, Any]) -> bytes:
+    return json.dumps(payload, separators=(",", ":")).encode()
 
 
 def beszel_token(base_url: str, email: str, password: str) -> str:
@@ -60,8 +73,11 @@ def beszel_systems(base_url: str, token: str) -> list[dict[str, Any]]:
     return resp.get("items", [])
 
 
-def format_uptime(seconds: float) -> str:
-    s = int(seconds)
+def format_uptime(seconds: Any) -> str:
+    try:
+        s = max(0, int(float(seconds or 0)))
+    except (TypeError, ValueError):
+        s = 0
     if s < 3600:
         return f"{s // 60}m"
     if s < 86400:
@@ -100,8 +116,7 @@ def build_payload(systems: list[dict[str, Any]], tz: str) -> dict[str, Any]:
                 "dsk": round1(info.get("dp")),
                 "up": format_uptime(info.get("u", 0)),
                 "la": round1((info.get("la") or [0])[0]),
-                "t": round1(temp) if temp else None,
-                "cores": info.get("t"),
+                "t": round1(temp) if temp is not None else None,
             }
         )
 
@@ -125,7 +140,22 @@ def build_payload(systems: list[dict[str, Any]], tz: str) -> dict[str, Any]:
 
 def push(webhook_url: str, payload: dict[str, Any]) -> None:
     # TRMNL webhook: POST to https://trmnl.com/api/custom_plugins/{UUID}
-    http(webhook_url, method="POST", body=payload, timeout=20.0)
+    http(webhook_url, method="POST", body=payload, expect_json=False, timeout=20.0)
+
+
+def payload_limit() -> int:
+    raw = os.environ.get("TRMNL_PAYLOAD_LIMIT_BYTES")
+    if not raw:
+        return DEFAULT_PAYLOAD_LIMIT_BYTES
+    try:
+        limit = int(raw)
+    except ValueError:
+        print(f"invalid TRMNL_PAYLOAD_LIMIT_BYTES={raw!r}", file=sys.stderr)
+        sys.exit(2)
+    if limit <= 0:
+        print("TRMNL_PAYLOAD_LIMIT_BYTES must be greater than 0", file=sys.stderr)
+        sys.exit(2)
+    return limit
 
 
 def main() -> int:
@@ -145,16 +175,30 @@ def main() -> int:
     except urllib.error.URLError as e:
         print(f"beszel network error: {e.reason}", file=sys.stderr)
         return 1
+    except (KeyError, ValueError) as e:
+        print(f"beszel response error: {e}", file=sys.stderr)
+        return 1
 
-    payload = build_payload(systems, tz)
-    size = len(json.dumps(payload).encode())
-    if size > 2048:
-        print(f"warning: payload {size}B exceeds TRMNL 2KB limit", file=sys.stderr)
+    try:
+        payload = build_payload(systems, tz)
+    except ZoneInfoNotFoundError:
+        print(f"invalid timezone in TZ: {tz}", file=sys.stderr)
+        return 1
+
+    limit = payload_limit()
+    size = len(encode_json(payload))
 
     if dry:
         print(json.dumps(payload, indent=2))
-        print(f"# dry-run (no TRMNL_WEBHOOK_URL): payload {size}B", file=sys.stderr)
+        if size > limit:
+            print(f"# dry-run: payload {size}B exceeds TRMNL limit {limit}B", file=sys.stderr)
+        else:
+            print(f"# dry-run (no TRMNL_WEBHOOK_URL): payload {size}B", file=sys.stderr)
         return 0
+
+    if size > limit:
+        print(f"payload {size}B exceeds TRMNL limit {limit}B; not pushing", file=sys.stderr)
+        return 1
 
     try:
         push(webhook, payload)
@@ -163,6 +207,9 @@ def main() -> int:
         return 1
     except urllib.error.URLError as e:
         print(f"trmnl network error: {e.reason}", file=sys.stderr)
+        return 1
+    except ValueError as e:
+        print(f"trmnl response error: {e}", file=sys.stderr)
         return 1
 
     print(

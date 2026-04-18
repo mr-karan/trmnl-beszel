@@ -1,0 +1,12 @@
+services:
+  beszel-trmnl:
+    build: .
+    container_name: beszel-trmnl
+    restart: always
+    env_file: .env
+    networks:
+      - beszel_internal
+
+networks:
+  beszel_internal:
+    external: true

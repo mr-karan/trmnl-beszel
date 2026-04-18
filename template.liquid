@@ -1,0 +1,105 @@
+{% comment %}
+  Beszel Servers — TRMNL Private Plugin (full view, 800x480)
+  Uses verified Framework v3 classes: divider, progress-bar, label--filled,
+  value--xxsmall, flex--between, flex--center-y. Paste into Edit Markup → full.
+{% endcomment %}
+
+<div class="view view--full">
+  <div class="layout layout--col gap--large">
+
+    {% comment %} Top summary — 4 tiles {% endcomment %}
+    <div class="grid grid--cols-4">
+      <div class="item">
+        <div class="meta"></div>
+        <div class="content">
+          <span class="value value--large value--tnums">{{ up }}<span class="label label--gray-out">/{{ total }}</span></span>
+          <span class="label">Servers Up</span>
+        </div>
+      </div>
+      <div class="item">
+        <div class="meta"></div>
+        <div class="content">
+          <span class="value value--large value--tnums">{{ cpu_avg }}<span class="label label--gray-out">%</span></span>
+          <span class="label">Avg CPU</span>
+        </div>
+      </div>
+      <div class="item">
+        <div class="meta"></div>
+        <div class="content">
+          <span class="value value--large value--tnums">{{ mem_avg }}<span class="label label--gray-out">%</span></span>
+          <span class="label">Avg Memory</span>
+        </div>
+      </div>
+      <div class="item">
+        <div class="meta"></div>
+        <div class="content">
+          <span class="value value--large value--tnums">{{ dsk_avg }}<span class="label label--gray-out">%</span></span>
+          <span class="label">Avg Disk</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="divider"></div>
+
+    {% comment %} Per-server rows — full-width headers, generous gap {% endcomment %}
+    <div class="flex flex--col gap--large w--full">
+      {% for srv in servers %}
+        <div class="flex flex--col gap--small w--full">
+
+          {% comment %} Header row {% endcomment %}
+          <div class="flex flex--row flex--between flex--center-y w--full">
+            <div class="flex flex--row flex--center-y gap--small">
+              {% if srv.s == 'up' %}
+                <span class="label label--filled">UP</span>
+              {% else %}
+                <span class="label label--outline">{{ srv.s | upcase }}</span>
+              {% endif %}
+              <span class="label label--large">{{ srv.n }}</span>
+            </div>
+            <div class="flex flex--row flex--center-y gap--small">
+              <span class="description value--tnums">{{ srv.up }}</span>
+              <span class="description label--gray-out">·</span>
+              <span class="description value--tnums">load {{ srv.la }}</span>
+              {% if srv.t %}
+                <span class="description label--gray-out">·</span>
+                <span class="description value--tnums">{{ srv.t }}°C</span>
+              {% endif %}
+            </div>
+          </div>
+
+          {% comment %} 3 compact progress bars {% endcomment %}
+          <div class="grid grid--cols-3 gap--small">
+            <div class="progress-bar progress-bar--small">
+              <div class="content">
+                <span class="label label--small">CPU</span>
+                <span class="value value--xxsmall value--tnums">{{ srv.cpu }}%</span>
+              </div>
+              <div class="track"><div class="fill" style="width: {{ srv.cpu }}%"></div></div>
+            </div>
+            <div class="progress-bar progress-bar--small">
+              <div class="content">
+                <span class="label label--small">MEM</span>
+                <span class="value value--xxsmall value--tnums">{{ srv.mem }}%</span>
+              </div>
+              <div class="track"><div class="fill" style="width: {{ srv.mem }}%"></div></div>
+            </div>
+            <div class="progress-bar progress-bar--small">
+              <div class="content">
+                <span class="label label--small">DSK</span>
+                <span class="value value--xxsmall value--tnums">{{ srv.dsk }}%</span>
+              </div>
+              <div class="track"><div class="fill" style="width: {{ srv.dsk }}%"></div></div>
+            </div>
+          </div>
+
+        </div>
+      {% endfor %}
+    </div>
+
+  </div>
+
+  <div class="title_bar">
+    <span class="title">Beszel</span>
+    <span class="instance">{{ up }}/{{ total }} up · {{ date }} {{ ts }}</span>
+  </div>
+</div>
